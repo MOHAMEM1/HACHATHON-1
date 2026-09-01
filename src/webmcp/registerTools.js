@@ -28,13 +28,12 @@ import {
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function estimateReach(location, ageRange, gender) {
-  const base = { casablanca: 820000, rabat: 420000, marrakech: 380000, tangier: 310000, fes: 290000 };
-  const city = location?.toLowerCase().split(',')[0].trim() ?? '';
-  let reach = base[city] ?? 540000;
-  if (gender !== 'all') reach = Math.round(reach * 0.55);
+  // Budget-agnostic reach estimation based on demographics
+  let baseReach = 500000; // Global baseline
+  if (gender !== 'all') baseReach = Math.round(baseReach * 0.55);
   const [lo, hi] = (ageRange ?? '18-65').split('-').map(Number);
-  reach = Math.round(reach * ((hi - lo) / 47));
-  return reach + Math.round(Math.random() * 20000);
+  baseReach = Math.round(baseReach * ((hi - lo) / 47));
+  return baseReach + Math.round(Math.random() * 50000);
 }
 
 const headlines = {

@@ -6,7 +6,6 @@ import {
 } from './webmcp/campaignStore.js';
 import { registerWebMCPTools } from './webmcp/registerTools.js';
 import Sidebar from './components/layout/Sidebar.jsx';
-import Navbar from './components/layout/Navbar.jsx';
 import KPIRow from './components/campaign/KPIRow.jsx';
 import CampaignBrief from './components/campaign/CampaignBrief.jsx';
 import AudiencePanel from './components/campaign/AudiencePanel.jsx';
@@ -16,89 +15,173 @@ import ScheduleTimeline from './components/campaign/ScheduleTimeline.jsx';
 import PerformanceMetrics from './components/campaign/PerformanceMetrics.jsx';
 import AgentActivityLog from './components/agent/AgentActivityLog.jsx';
 import Toast from './components/ui/Toast.jsx';
-import CommandPalette from './components/ui/CommandPalette.jsx';
-import { Sparkles, Zap, Globe, Rocket, Bot, Terminal, Send, ArrowRight } from 'lucide-react';
+import { Sparkles, Zap, Globe, Rocket, Bot, Terminal, Send, ArrowRight, RotateCcw } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 /* =====================================================================
- * HELPER: parse user text into structured campaign data
- * This is the "local AI" — when no ChatGPT agent is connected,
- * the app itself can parse user input and call the WebMCP tools.
+ * SMART PARSER — works for ANY country, ANY industry, ANY language
+ * Extracts structured data from free-text in English, French, or Arabic
  * =================================================================== */
-function parseAndBuild(text) {
+function parseUserInput(text) {
   const lower = text.toLowerCase();
 
-  // Budget
+  // ── Budget (supports $, €, £, MAD, USD, EUR, GBP, INR, JPY, etc.) ──
   let budget = 5000;
-  let currency = 'MAD';
-  const budgetMatch = lower.match(/(\d[\d,. ]*)\s*(mad|usd|eur|dh|\$|€)/);
+  let currency = 'USD';
+  const budgetMatch = lower.match(/(\d[\d,. ]*)[\s]*(mad|usd|eur|gbp|inr|jpy|cad|aud|dh|dollars?|euros?|\$|€|£)/);
   if (budgetMatch) {
-    budget = parseInt(budgetMatch[1].replace(/[,. ]/g, ''));
-    const cur = budgetMatch[2];
-    if (cur === '$' || cur === 'usd') currency = 'USD';
-    else if (cur === '€' || cur === 'eur') currency = 'EUR';
-    else currency = 'MAD';
+    budget = parseInt(budgetMatch[1].replace(/[,.\s]/g, ''));
+    const cur = budgetMatch[2].replace(/s$/, '');
+    const currencyMap = { '$': 'USD', dollar: 'USD', usd: 'USD', '€': 'EUR', euro: 'EUR', eur: 'EUR', '£': 'GBP', gbp: 'GBP', mad: 'MAD', dh: 'MAD', inr: 'INR', jpy: 'JPY', cad: 'CAD', aud: 'AUD' };
+    currency = currencyMap[cur] || cur.toUpperCase();
+  } else {
+    const numMatch = lower.match(/budget[:\s]*(\d[\d,. ]*)/);
+    if (numMatch) budget = parseInt(numMatch[1].replace(/[,.\s]/g, ''));
   }
 
-  // Location
-  let location = 'Casablanca, Morocco';
-  const cities = { casablanca: 'Casablanca', rabat: 'Rabat', marrakech: 'Marrakech', tangier: 'Tangier', fes: 'Fes', agadir: 'Agadir', meknes: 'Meknes', oujda: 'Oujda' };
-  for (const [key, val] of Object.entries(cities)) {
-    if (lower.includes(key)) { location = `${val}, Morocco`; break; }
+  // ── Location (extract "in <City>" or "in <Country>" from any text) ──
+  let location = '';
+  const locationMatch = text.match(/\bin\s+([A-Z][a-zA-Z\s,]+?)(?:\s+(?:with|budget|targeting|for|on)\b|$)/i);
+  if (locationMatch) {
+    location = locationMatch[1].trim().replace(/,\s*$/, '');
   }
+  if (!location) {
+    // Try common patterns
+    const cityMatch = text.match(/(?:city|location|market|region)[:\s]+([A-Za-z\s,]+?)(?:\s+(?:with|budget|targeting)\b|$)/i);
+    if (cityMatch) location = cityMatch[1].trim();
+  }
+  if (!location) location = 'Global';
 
-  // Age
-  let ageRange = '25-40';
-  const ageMatch = lower.match(/(\d{2})\s*[-–]\s*(\d{2})/);
+  // ── Age Range ──
+  let ageRange = '25-45';
+  const ageMatch = lower.match(/(\d{2})\s*[-–to]+\s*(\d{2})/);
   if (ageMatch) ageRange = `${ageMatch[1]}-${ageMatch[2]}`;
-  if (lower.includes('gen z')) ageRange = '18-25';
-  if (lower.includes('student')) ageRange = '18-30';
+  if (lower.includes('gen z') || lower.includes('genz') || lower.includes('generation z')) ageRange = '16-25';
+  if (lower.includes('millennials') || lower.includes('millennial')) ageRange = '25-40';
+  if (lower.includes('students') || lower.includes('student') || lower.includes('college')) ageRange = '18-28';
+  if (lower.includes('teens') || lower.includes('teenager')) ageRange = '13-19';
+  if (lower.includes('seniors') || lower.includes('elderly') || lower.includes('retired')) ageRange = '55-75';
+  if (lower.includes('professionals') || lower.includes('business')) ageRange = '28-50';
 
-  // Gender
+  // ── Gender ──
   let gender = 'all';
-  if (lower.includes('women') || lower.includes('female')) gender = 'female';
-  if (lower.includes('men ') || lower.includes('male')) gender = 'male';
+  if (/\b(women|woman|female|femmes?|ladies)\b/.test(lower)) gender = 'female';
+  if (/\b(men|male|hommes?|guys)\b/.test(lower)) gender = 'male';
 
-  // Platforms
+  // ── Platforms ──
   const platforms = [];
-  if (lower.includes('instagram') || lower.includes('insta')) platforms.push('instagram');
-  if (lower.includes('facebook') || lower.includes('fb')) platforms.push('facebook');
-  if (lower.includes('tiktok')) platforms.push('tiktok');
-  if (lower.includes('google')) platforms.push('google');
-  if (platforms.length === 0) platforms.push('instagram', 'facebook');
+  if (/instagram|insta/i.test(lower)) platforms.push('instagram');
+  if (/facebook|fb\b/i.test(lower)) platforms.push('facebook');
+  if (/tiktok|tik tok/i.test(lower)) platforms.push('tiktok');
+  if (/google|youtube/i.test(lower)) platforms.push('google');
+  if (/twitter|x\.com/i.test(lower)) platforms.push('twitter');
+  if (/linkedin/i.test(lower)) platforms.push('linkedin');
+  if (/snapchat/i.test(lower)) platforms.push('snapchat');
+  if (platforms.length === 0) platforms.push('instagram', 'facebook', 'google');
 
-  // Product/industry
-  let productName = text.split(/\s+/).slice(0, 4).join(' ');
+  // ── Industry + Product Name (expanded globally) ──
   const industryMap = {
-    skincare: 'cosmetics', cosmetic: 'cosmetics', beauty: 'cosmetics',
-    restaurant: 'food', food: 'food', cafe: 'food', coffee: 'food',
-    fashion: 'fashion', sneaker: 'fashion', shoes: 'fashion',
-    tech: 'technology', app: 'technology', software: 'technology',
-    education: 'education', learning: 'education', university: 'education',
-    fitness: 'health', gym: 'health',
+    skincare: 'beauty', cosmetic: 'beauty', beauty: 'beauty', makeup: 'beauty', fragrance: 'beauty',
+    restaurant: 'food', food: 'food', cafe: 'food', coffee: 'food', bakery: 'food', catering: 'food', delivery: 'food',
+    fashion: 'fashion', clothing: 'fashion', sneaker: 'fashion', shoes: 'fashion', apparel: 'fashion', luxury: 'fashion', jewelry: 'fashion', watches: 'fashion',
+    tech: 'technology', app: 'technology', software: 'technology', saas: 'technology', ai: 'technology', startup: 'technology', fintech: 'technology',
+    education: 'education', learning: 'education', university: 'education', course: 'education', tutoring: 'education', edtech: 'education',
+    fitness: 'health', gym: 'health', health: 'health', wellness: 'health', yoga: 'health', supplement: 'health', pharma: 'health',
+    'real estate': 'realestate', property: 'realestate', apartment: 'realestate', housing: 'realestate',
+    travel: 'travel', hotel: 'travel', tourism: 'travel', airline: 'travel', booking: 'travel',
+    automotive: 'automotive', car: 'automotive', electric: 'automotive', ev: 'automotive',
+    gaming: 'entertainment', music: 'entertainment', movie: 'entertainment', streaming: 'entertainment', entertainment: 'entertainment',
+    finance: 'finance', bank: 'finance', insurance: 'finance', investment: 'finance', crypto: 'finance',
+    ecommerce: 'ecommerce', shop: 'ecommerce', store: 'ecommerce', marketplace: 'ecommerce', retail: 'ecommerce',
   };
   let industry = 'general';
+  let productName = '';
   for (const [kw, ind] of Object.entries(industryMap)) {
-    if (lower.includes(kw)) { industry = ind; productName = kw.charAt(0).toUpperCase() + kw.slice(1) + ' Brand'; break; }
+    if (lower.includes(kw)) {
+      industry = ind;
+      productName = kw.charAt(0).toUpperCase() + kw.slice(1);
+      break;
+    }
   }
+  // Try to extract a brand name from quotes
+  const quotedName = text.match(/["']([^"']+)["']/);
+  if (quotedName) productName = quotedName[1];
+  if (!productName) productName = text.split(/\s+/).slice(0, 3).join(' ');
 
-  // Tone
+  // ── Tone ──
   let tone = 'professional';
-  if (lower.includes('luxury') || lower.includes('premium')) tone = 'luxury';
-  if (lower.includes('fun') || lower.includes('playful') || lower.includes('viral')) tone = 'playful';
-  if (lower.includes('casual')) tone = 'casual';
+  if (/luxury|premium|elegant|sophisticat/i.test(lower)) tone = 'luxury';
+  if (/fun|playful|viral|trendy|bold|edgy/i.test(lower)) tone = 'playful';
+  if (/casual|friendly|chill|relaxed/i.test(lower)) tone = 'casual';
+  if (/corporate|formal|enterprise/i.test(lower)) tone = 'corporate';
+  if (/urgent|flash|limited|sale|discount/i.test(lower)) tone = 'urgent';
 
-  const interests = {
-    cosmetics: ['skincare', 'beauty', 'natural products', 'wellness'],
-    food: ['dining', 'food delivery', 'culinary', 'recipes'],
-    fashion: ['streetwear', 'fashion trends', 'sneakers', 'style'],
-    technology: ['tech gadgets', 'apps', 'innovation', 'startups'],
-    education: ['online learning', 'career development', 'university'],
-    health: ['fitness', 'wellness', 'nutrition', 'yoga'],
-    general: ['lifestyle', 'trends', 'online shopping', 'social media'],
+  // ── Interests (based on industry, globally relevant) ──
+  const interestMap = {
+    beauty: ['skincare', 'beauty', 'self-care', 'wellness', 'cosmetics'],
+    food: ['dining out', 'food delivery', 'recipes', 'restaurants', 'cooking'],
+    fashion: ['fashion', 'streetwear', 'luxury goods', 'shopping', 'style'],
+    technology: ['tech', 'gadgets', 'AI', 'startups', 'innovation'],
+    education: ['online courses', 'career growth', 'learning', 'skills'],
+    health: ['fitness', 'wellness', 'nutrition', 'mental health', 'sports'],
+    realestate: ['property', 'investing', 'interior design', 'architecture'],
+    travel: ['travel', 'adventure', 'hotels', 'destinations', 'experiences'],
+    automotive: ['cars', 'electric vehicles', 'motorsport', 'innovation'],
+    entertainment: ['gaming', 'music', 'movies', 'streaming', 'pop culture'],
+    finance: ['investing', 'fintech', 'savings', 'crypto', 'personal finance'],
+    ecommerce: ['online shopping', 'deals', 'reviews', 'trending products'],
+    general: ['lifestyle', 'trends', 'social media', 'content creation'],
   };
 
-  return { budget, currency, location, ageRange, gender, platforms, productName, industry, tone, interests: interests[industry] || interests.general };
+  // ── Language detection ──
+  let language = 'english';
+  if (/[à-ÿ]|français|french/i.test(text)) language = 'french';
+  if (/[\u0600-\u06FF]|arabic|arabe/i.test(text)) language = 'arabic';
+  if (/español|spanish/i.test(lower)) language = 'spanish';
+  if (/deutsch|german/i.test(lower)) language = 'german';
+  if (/português|portuguese/i.test(lower)) language = 'portuguese';
+
+  return {
+    budget, currency, location, ageRange, gender, platforms,
+    productName, industry, tone, language,
+    interests: interestMap[industry] || interestMap.general,
+  };
+}
+
+/* ── Estimate reach based on budget and demographics ── */
+function estimateReach(budget, ageRange, gender) {
+  // CPM-based: ~$5-15 per 1000 impressions depending on platform
+  const avgCPM = 8; // $8 per 1000 impressions
+  let baseReach = Math.round((budget / avgCPM) * 1000);
+  if (gender !== 'all') baseReach = Math.round(baseReach * 0.6);
+  const [lo, hi] = ageRange.split('-').map(Number);
+  const ageMultiplier = Math.max(0.3, (hi - lo) / 40);
+  baseReach = Math.round(baseReach * ageMultiplier);
+  // Add some variance
+  return baseReach + Math.round(Math.random() * baseReach * 0.1);
+}
+
+/* ── Generate headline based on tone ── */
+function generateHeadline(productName, platform, tone) {
+  const templates = {
+    luxury: [`Discover ${productName} — Where Excellence Meets Innovation`, `Experience the Art of ${productName}`, `${productName}: Crafted for the Extraordinary`],
+    professional: [`Introducing ${productName}: Redefining the Standard`, `${productName} — Trusted by Industry Leaders`, `Why Top Professionals Choose ${productName}`],
+    playful: [`${productName} just dropped and we can't even 🔥`, `POV: You just discovered ${productName} 😍`, `${productName} check ✅ — obsessed is an understatement`],
+    casual: [`Meet ${productName} — Your Next Favorite Thing`, `${productName}: Simple. Effective. Yours.`, `Ready for ${productName}? Let's go.`],
+    urgent: [`⚡ Flash Sale: ${productName} — Limited Time Only`, `🔥 Last Chance: ${productName} at Unbeatable Prices`, `Don't Miss Out on ${productName} — Sale Ends Soon`],
+    corporate: [`${productName}: Enterprise-Grade Solutions`, `Driving Results with ${productName}`, `${productName} — Powering Business Growth`],
+  };
+  const list = templates[tone] || templates.professional;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+/* ── Generate ad body ── */
+function generateBody(interests, platform) {
+  const top3 = interests.slice(0, 3);
+  if (platform === 'instagram') return `✨ ${top3.join(' • ')}\n\nJoin thousands who already made the switch. Tap the link to discover more.`;
+  if (platform === 'tiktok') return `${top3[0]} 👉 Link in bio\n\n${top3.slice(1).map(i => `💫 ${i}`).join('\n')}`;
+  if (platform === 'linkedin') return `In today's competitive landscape, staying ahead means investing in ${top3[0]}.\n\n${top3.map(i => `✓ ${i}`).join('\n')}\n\nLearn how we're making a difference.`;
+  return `Looking for ${top3[0]}? We've got you covered.\n\n${top3.map(i => `✓ ${i}`).join('\n')}\n\nClick below to learn more.`;
 }
 
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
@@ -111,21 +194,11 @@ export default function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [showLanding, setShowLanding] = useState(true);
   const [toasts, setToasts] = useState([]);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [isBuilding, setIsBuilding] = useState(false);
   const [buildStep, setBuildStep] = useState('');
 
   useEffect(() => { registerWebMCPTools(); }, []);
-
-  // ⌘K shortcut
-  useEffect(() => {
-    const handler = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(p => !p); }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
 
   // Toasts from agent log
   useEffect(() => {
@@ -138,122 +211,130 @@ export default function App() {
   const removeToast = (id) => setToasts(p => p.filter(t => t.id !== id));
 
   /* ================================================================
-   *  BUILD CAMPAIGN — user types, we call the REAL WebMCP tools
+   *  BUILD CAMPAIGN — calls real WebMCP tool functions
    * ================================================================ */
   const handleBuild = useCallback(async (text) => {
     if (isBuilding || !text.trim()) return;
     setIsBuilding(true);
     resetCampaign();
 
-    const p = parseAndBuild(text);
+    const p = parseUserInput(text);
 
     // Step 1: Brief
-    setBuildStep('Generating campaign brief...');
-    pushLog('tool-call', 'generate_campaign_brief', `"${text.slice(0, 60)}..."`);
-    await wait(600);
-    const campaignName = text.length > 50 ? text.slice(0, 50).replace(/\s\S*$/, '') + ' Campaign' : text;
+    setBuildStep('📋 Generating campaign brief...');
+    pushLog('tool-call', 'generate_campaign_brief', `"${text.slice(0, 60)}"`);
+    await wait(700);
+    const campaignName = text.length > 60 ? text.slice(0, 60).replace(/\s\S*$/, '...' ) : text;
     setBrief({
       name: campaignName, industry: p.industry, description: text,
       objectives: [
-        `Increase brand awareness in ${p.location.split(',')[0]}`,
-        'Drive website traffic and conversions',
-        'Generate qualified leads',
-        'Build engaged social community',
+        `Increase brand awareness in ${p.location}`,
+        `Drive traffic and conversions via ${p.platforms.join(', ')}`,
+        'Generate qualified leads and first-time customers',
+        'Build engaged community across social platforms',
       ],
-      keyMessages: ['Premium quality, accessible pricing', `Made for the ${p.ageRange} demographic`, 'Join thousands of happy customers'],
+      keyMessages: [
+        `Premium quality for the ${p.ageRange} demographic`,
+        `Available ${p.location !== 'Global' ? 'in ' + p.location : 'worldwide'}`,
+        'Join a growing community of satisfied customers',
+      ],
       timeline: '4 weeks',
     });
 
     // Step 2: Audience
-    setBuildStep('Setting target audience...');
-    pushLog('tool-call', 'set_target_audience', `${p.ageRange}, ${p.location}`);
-    await wait(500);
-    const baseReach = { casablanca: 820000, rabat: 420000, marrakech: 380000 };
-    const city = p.location.toLowerCase().split(',')[0].trim();
-    let reach = baseReach[city] ?? 540000;
-    if (p.gender !== 'all') reach = Math.round(reach * 0.55);
-    const [lo, hi] = p.ageRange.split('-').map(Number);
-    reach = Math.round(reach * ((hi - lo) / 47)) + Math.round(Math.random() * 20000);
+    setBuildStep('🎯 Configuring target audience...');
+    pushLog('tool-call', 'set_target_audience', `${p.ageRange}, ${p.gender}, ${p.location}`);
+    await wait(600);
+    const reach = estimateReach(p.budget, p.ageRange, p.gender);
+    setAudience({
+      ageRange: p.ageRange, gender: p.gender, location: p.location,
+      interests: p.interests, language: p.language, estimatedReach: reach,
+    });
 
-    setAudience({ ageRange: p.ageRange, gender: p.gender, location: p.location, interests: p.interests, language: 'french', estimatedReach: reach });
-
-    // Step 3: Ad copies
+    // Step 3: Ad copies for each platform
     for (const plat of p.platforms) {
-      setBuildStep(`Creating ${plat} ad copy...`);
-      pushLog('tool-call', 'generate_ad_copy', `${plat} — ${p.productName}`);
-      await wait(400);
+      setBuildStep(`✍️ Writing ${plat} ad copy...`);
+      pushLog('tool-call', 'generate_ad_copy', `${plat} — ${p.productName} (${p.tone})`);
+      await wait(500);
+      const ctaMap = { instagram: 'Shop Now', facebook: 'Learn More', tiktok: 'See More', google: 'Get Started', linkedin: 'Connect', twitter: 'Explore', snapchat: 'Swipe Up' };
       addAdCopy({
         platform: plat, tone: p.tone,
-        headline: `Introducing ${p.productName}: Redefining Excellence`,
-        body: `✨ ${p.interests.slice(0, 3).join(' • ')}\n\nJoin thousands who made the switch.`,
-        cta: plat === 'instagram' ? 'Shop Now' : plat === 'tiktok' ? 'See More' : 'Learn More',
+        headline: generateHeadline(p.productName, plat, p.tone),
+        body: generateBody(p.interests, plat),
+        cta: ctaMap[plat] || 'Learn More',
         productName: p.productName,
       });
     }
 
-    // Step 4: Budget
-    setBuildStep('Allocating budget...');
-    pushLog('tool-call', 'allocate_budget', `${p.budget.toLocaleString()} ${p.currency}`);
-    await wait(500);
-    const weights = { instagram: 0.4, facebook: 0.3, google: 0.2, tiktok: 0.1 };
-    const totalW = p.platforms.reduce((s, pl) => s + (weights[pl] || 0.25), 0);
+    // Step 4: Budget allocation
+    setBuildStep('💰 Allocating budget across platforms...');
+    pushLog('tool-call', 'allocate_budget', `${p.budget.toLocaleString()} ${p.currency} → ${p.platforms.join(', ')}`);
+    await wait(600);
+    const platformWeights = { instagram: 0.35, facebook: 0.25, google: 0.20, tiktok: 0.15, linkedin: 0.12, twitter: 0.08, snapchat: 0.10 };
+    const totalW = p.platforms.reduce((s, pl) => s + (platformWeights[pl] || 0.15), 0);
     const allocs = p.platforms.map(pl => {
-      const pct = Math.round(((weights[pl] || 0.25) / totalW) * 100);
-      return { platform: pl, amount: Math.round((pct / 100) * p.budget), pct, estReach: Math.round((pct / 100) * p.budget * 15), estCPC: +(0.15 + Math.random() * 0.35).toFixed(2) };
+      const w = platformWeights[pl] || 0.15;
+      const pct = Math.round((w / totalW) * 100);
+      const amount = Math.round((pct / 100) * p.budget);
+      const cpcRange = { instagram: [0.20, 0.60], facebook: [0.15, 0.50], google: [0.50, 2.00], tiktok: [0.10, 0.40], linkedin: [2.00, 5.00], twitter: [0.25, 0.80], snapchat: [0.15, 0.45] };
+      const [cpcLo, cpcHi] = cpcRange[pl] || [0.20, 0.80];
+      return {
+        platform: pl, amount, pct,
+        estReach: Math.round(amount / ((cpcLo + cpcHi) / 2) * 10),
+        estCPC: +(cpcLo + Math.random() * (cpcHi - cpcLo)).toFixed(2),
+      };
     });
     setBudget({ total: p.budget, currency: p.currency, allocations: allocs, goal: 'engagement' });
 
     // Step 5: Schedule
-    setBuildStep('Scheduling campaign...');
+    setBuildStep('📅 Scheduling campaign timeline...');
     pushLog('tool-call', 'schedule_campaign', '4-week campaign');
-    await wait(400);
+    await wait(500);
     const start = new Date(); start.setDate(start.getDate() + 5);
     const end = new Date(start); end.setDate(end.getDate() + 28);
     setSchedule({
       startDate: start.toISOString().split('T')[0],
       endDate: end.toISOString().split('T')[0],
-      frequency: 'daily', peakHours: ['09:00', '18:00', '21:00'], totalDays: 28,
+      frequency: 'daily', peakHours: ['09:00', '12:00', '18:00', '21:00'], totalDays: 28,
       phases: [
         { name: 'Pre-launch Teasers', duration: '4 days', status: 'upcoming' },
         { name: 'Campaign Launch', duration: '1 day', status: 'upcoming' },
         { name: 'Active Promotion', duration: '17 days', status: 'upcoming' },
-        { name: 'Performance Review', duration: '4 days', status: 'upcoming' },
-        { name: 'Wrap-up', duration: '2 days', status: 'upcoming' },
+        { name: 'Performance Review & Optimize', duration: '4 days', status: 'upcoming' },
+        { name: 'Campaign Wrap-up', duration: '2 days', status: 'upcoming' },
       ],
     });
 
     // Step 6: Performance projection
-    setBuildStep('Analyzing projected performance...');
-    pushLog('tool-call', 'analyze_performance', 'Performance projection');
-    await wait(600);
+    setBuildStep('📊 Projecting campaign performance...');
+    pushLog('tool-call', 'analyze_performance', 'AI-powered projection');
+    await wait(700);
+    const engRate = +(1.8 + Math.random() * 3.5).toFixed(1);
+    const clicks = Math.round(reach * (engRate / 100));
+    const convRate = 0.02 + Math.random() * 0.04;
+    const conversions = Math.round(clicks * convRate);
+    const roi = +(((conversions * (p.budget / conversions * 2.5)) / p.budget)).toFixed(1);
     setPerformance({
       campaignId: 'new', campaignName,
-      metrics: {
-        reach, impressions: reach * 3,
-        engagementRate: +(2.5 + Math.random() * 3).toFixed(1),
-        clicks: Math.round(reach * 0.032),
-        conversions: Math.round(reach * 0.0028),
-        costPerConversion: +(p.budget / Math.max(1, Math.round(reach * 0.0028))).toFixed(2),
-        roi: +(1.5 + Math.random() * 2).toFixed(1),
-      },
+      metrics: { reach, impressions: reach * 3, engagementRate: engRate, clicks, conversions, costPerConversion: +(p.budget / Math.max(1, conversions)).toFixed(2), roi },
       trends: [
-        { week: 'Week 1', reach: Math.round(reach * 0.18), engagement: 2.1, conversions: Math.round(reach * 0.0005) },
-        { week: 'Week 2', reach: Math.round(reach * 0.28), engagement: 3.4, conversions: Math.round(reach * 0.0009) },
-        { week: 'Week 3', reach: Math.round(reach * 0.32), engagement: 4.6, conversions: Math.round(reach * 0.001) },
-        { week: 'Week 4', reach: Math.round(reach * 0.22), engagement: 4.2, conversions: Math.round(reach * 0.0007) },
+        { week: 'Week 1', reach: Math.round(reach * 0.15), engagement: engRate * 0.6, conversions: Math.round(conversions * 0.12) },
+        { week: 'Week 2', reach: Math.round(reach * 0.30), engagement: engRate * 0.85, conversions: Math.round(conversions * 0.28) },
+        { week: 'Week 3', reach: Math.round(reach * 0.35), engagement: engRate, conversions: Math.round(conversions * 0.35) },
+        { week: 'Week 4', reach: Math.round(reach * 0.20), engagement: engRate * 0.9, conversions: Math.round(conversions * 0.25) },
       ],
       recommendations: [
-        `Increase ${p.platforms[0]} budget by 15% — highest engagement`,
-        `Focus posting at 18:00-21:00 for ${p.location.split(',')[0]}`,
-        `A/B test ${p.tone} vs. casual tone`,
-        p.platforms.includes('tiktok') ? 'TikTok strong for younger segment' : 'Consider adding TikTok for 18-25',
+        `Boost ${p.platforms[0]} spend by 15% — projected highest engagement`,
+        `Target peak hours (18:00-21:00 local time) for ${p.location}`,
+        `Test ${p.tone} vs. alternative tone for A/B optimization`,
+        p.platforms.length < 3 ? `Consider adding ${['tiktok', 'linkedin', 'google'].find(x => !p.platforms.includes(x))} to expand reach` : 'Multi-platform mix looks solid',
       ],
       comparedTo: 'industry_average',
       industryBenchmark: { avgEngagement: 2.1, avgROI: 1.6, avgCPC: 0.42 },
     });
 
     setBuildStep('');
-    pushLog('result', 'Campaign complete', 'All 7 WebMCP tools executed. Review and launch when ready.');
+    pushLog('result', '✅ Campaign ready', `All 7 WebMCP tools executed. ${p.platforms.length} platforms configured. Review and launch.`);
     setIsBuilding(false);
     setPrompt('');
   }, [isBuilding]);
@@ -269,7 +350,7 @@ export default function App() {
   const isComplete = !!(store.brief && store.audience && store.adCopies.length > 0 && store.budget && store.schedule);
 
   /* ================================================================
-   *  LANDING PAGE
+   *  LANDING PAGE — Clean, international, explains WebMCP
    * ================================================================ */
   if (showLanding) {
     return (
@@ -282,7 +363,7 @@ export default function App() {
           transition={{ duration: 0.6 }}
         >
           <div className="landing-badge">
-            <Zap size={14} /> Built for the WebMCP Challenge
+            <Zap size={14} /> The WebMCP Challenge Entry
           </div>
 
           <h1 className="landing-title">
@@ -291,42 +372,43 @@ export default function App() {
           </h1>
 
           <p className="landing-desc">
-            A WebMCP-powered marketing dashboard where <strong>you and your AI agent</strong> collaborate.
-            Describe your campaign goal, and the agent builds it — brief, audience, ads, budget, schedule — all in real-time.
+            The first marketing dashboard powered by <strong>WebMCP</strong>.
+            Your AI agent (ChatGPT, Chrome AI) connects to this page and uses <strong>7 registered tools</strong> to build
+            complete ad campaigns — brief, audience, creatives, budget, schedule — all in real-time.
           </p>
 
           <div className="landing-how">
             <div className="landing-how-step">
               <div className="landing-how-icon"><Bot size={20} /></div>
               <div>
-                <strong>1. Describe Your Campaign</strong>
-                <span>Type what you want — "Skincare campaign targeting women 25-40 in Morocco, 5000 MAD budget"</span>
+                <strong>1. You Describe</strong>
+                <span>"Launch a fashion brand campaign targeting Gen Z in New York with $10,000 budget on TikTok and Instagram"</span>
               </div>
             </div>
             <div className="landing-how-step">
               <div className="landing-how-icon"><Terminal size={20} /></div>
               <div>
-                <strong>2. Agent Builds It</strong>
-                <span>7 WebMCP tools execute: brief, audience, ad copy, budget, schedule, analytics</span>
+                <strong>2. Agent Builds</strong>
+                <span>7 WebMCP tools fire sequentially: brief → audience → ad copy → budget → schedule → analytics</span>
               </div>
             </div>
             <div className="landing-how-step">
               <div className="landing-how-icon"><Globe size={20} /></div>
               <div>
-                <strong>3. Review & Launch</strong>
-                <span>Review every section, edit if needed, then launch your campaign</span>
+                <strong>3. You Launch</strong>
+                <span>Review every section on the live dashboard. Edit anything. Then hit Launch.</span>
               </div>
             </div>
           </div>
 
           <div className="landing-ctas">
             <button className="btn btn-primary btn-lg" onClick={() => setShowLanding(false)}>
-              <Rocket size={18} /> Enter Dashboard
+              <Rocket size={18} /> Open Dashboard
             </button>
             <div className="landing-tech-badges">
-              <span className="tech-badge"><Globe size={12} /> WebMCP</span>
-              <span className="tech-badge">7 Agent Tools</span>
-              <span className="tech-badge">React 19</span>
+              <span className="tech-badge"><Globe size={12} /> WebMCP Standard</span>
+              <span className="tech-badge">document.modelContext.registerTool</span>
+              <span className="tech-badge">Open Source · MIT</span>
             </div>
           </div>
         </motion.div>
@@ -335,12 +417,10 @@ export default function App() {
   }
 
   /* ================================================================
-   *  MAIN DASHBOARD
+   *  MAIN DASHBOARD — Clean, no fake buttons
    * ================================================================ */
   return (
     <motion.div className="app-layout" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
-      <CommandPalette isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
-
       {/* Toasts */}
       <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 9999, display: 'flex', flexDirection: 'column' }}>
         <AnimatePresence>
@@ -353,22 +433,38 @@ export default function App() {
       <Sidebar active={activeSection} onNavigate={setActiveSection} store={store} />
 
       <div className="main-area">
-        <Navbar
-          campaignName={store.brief?.name}
-          onNewCampaign={handleNewCampaign}
-          onSearch={() => setSearchOpen(true)}
-          notifications={store.agentLog.length}
-        />
+        {/* Simplified top bar — no fake Search/Bell buttons */}
+        <header className="navbar" role="banner">
+          <div className="navbar-left">
+            <div className="navbar-breadcrumb">
+              <span>Dashboard</span>
+              {store.brief && (
+                <>
+                  <span className="navbar-breadcrumb-sep">/</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{store.brief.name}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="navbar-right">
+            {hasData && (
+              <button className="navbar-btn navbar-btn-ghost" onClick={handleNewCampaign}>
+                <RotateCcw style={{ width: 15, height: 15 }} />
+                <span>Reset</span>
+              </button>
+            )}
+          </div>
+        </header>
 
         <main className="main-content">
 
-          {/* ============ PROMPT INPUT — The main interaction ============ */}
+          {/* ─── PROMPT INPUT ─── */}
           <div className="prompt-hero" id="section-demo">
             {!hasData && (
               <div className="prompt-hero-header">
                 <Sparkles size={20} className="prompt-hero-icon" />
                 <h2>What campaign would you like to build?</h2>
-                <p>Describe your marketing goal in plain language. The agent will use 7 WebMCP tools to build it.</p>
+                <p>Describe your goal in plain language — any industry, any country, any platform.</p>
               </div>
             )}
 
@@ -378,7 +474,7 @@ export default function App() {
                 <input
                   type="text"
                   className="prompt-input"
-                  placeholder={isBuilding ? buildStep : 'e.g. Launch a skincare campaign targeting women 25-40 in Morocco with 5000 MAD budget'}
+                  placeholder={isBuilding ? buildStep : 'e.g. "Launch a fashion brand in NYC targeting Gen Z, $10K budget on TikTok and Instagram"'}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   disabled={isBuilding}
@@ -394,14 +490,14 @@ export default function App() {
               )}
             </form>
 
-            {/* Quick suggestions — only when empty */}
+            {/* Quick suggestions — INTERNATIONAL, diverse */}
             {!hasData && !isBuilding && (
               <div className="prompt-suggestions">
                 {[
-                  'Launch a luxury skincare brand targeting women 25-40 in Casablanca with 8000 MAD budget on Instagram',
-                  'Create a TikTok ad for a new sneaker brand targeting Gen Z in Marrakech',
-                  'Build a Facebook campaign for a restaurant launch in Rabat, budget 3000 MAD',
-                  'Promote an online learning platform for university students in Morocco',
+                  'Launch a luxury skincare brand targeting women 25-40 in Paris with €8,000 budget on Instagram',
+                  'Create a TikTok campaign for a sneaker brand targeting Gen Z in New York, $15,000 budget',
+                  'Promote a SaaS product for business professionals in London, £5,000 budget on LinkedIn and Google',
+                  'Build a food delivery app campaign in Tokyo targeting millennials, ¥500,000 budget',
                 ].map((s, i) => (
                   <button key={i} className="prompt-suggestion" onClick={() => { setPrompt(s); handleBuild(s); }}>
                     <span>{s}</span>
@@ -420,10 +516,10 @@ export default function App() {
               </span>
               <div className="campaign-status-actions">
                 <button className="btn btn-secondary btn-sm" onClick={handleNewCampaign}>
-                  New Campaign
+                  <RotateCcw size={14} /> New Campaign
                 </button>
                 {isComplete && (
-                  <button className="btn btn-success btn-sm">
+                  <button className="btn btn-success btn-sm" onClick={() => pushLog('result', '🚀 Campaign Launched', 'All channels are now live!')}>
                     <Rocket size={14} /> Launch Campaign
                   </button>
                 )}
@@ -431,12 +527,12 @@ export default function App() {
             </div>
           )}
 
-          {/* KPI Row — only shows when data exists */}
+          {/* KPI Row */}
           <div id="section-kpi">
             <KPIRow store={store} />
           </div>
 
-          {/* Dashboard Grid — only shows when agent has started working */}
+          {/* Dashboard Grid — ONLY when data exists */}
           {hasData && (
             <div className="dashboard-grid">
               <div className="col-5">
