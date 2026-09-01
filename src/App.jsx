@@ -14,10 +14,23 @@ import AgentActivityLog from './components/agent/AgentActivityLog.jsx';
 import HeroSection from './components/landing/HeroSection.jsx';
 import Toast from './components/ui/Toast.jsx';
 import ProgressBar from './components/ui/ProgressBar.jsx';
+import CommandPalette from './components/ui/CommandPalette.jsx';
 import { Play, RotateCcw } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
-const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Smooth-scroll to a section by id */
+function scrollToSection(sectionId) {
+  setTimeout(() => {
+    const el = document.getElementById(sectionId);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.classList.add('section-highlight');
+      setTimeout(() => el.classList.remove('section-highlight'), 2000);
+    }
+  }, 200);
+}
 
 export default function App() {
   const store = useSyncExternalStore(subscribe, getSnapshot);
@@ -25,12 +38,23 @@ export default function App() {
   const [demoRunning, setDemoRunning] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [demoStep, setDemoStep] = useState(0);
-
-  // New toasts derived from agentLog
   const [toasts, setToasts] = useState([]);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     registerWebMCPTools();
+  }, []);
+
+  // ⌘K shortcut for Command Palette
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
   // Watch agent log for new toasts
@@ -45,17 +69,21 @@ export default function App() {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
+  /* ================================================================
+   *  DEMO RUNNER — with auto-scroll to each section
+   * ================================================================ */
   const runDemo = useCallback(async () => {
     if (demoRunning) return;
     setDemoRunning(true);
     resetCampaign();
     setDemoStep(0);
-    await delay(500);
+    setActiveSection('dashboard');
+    await wait(500);
 
     // Step 1: Generate brief
     setDemoStep(1);
     pushLog('tool-call', 'generate_campaign_brief', '"Launch a premium skincare line targeting women in Morocco"');
-    await delay(900);
+    await wait(900);
     setBrief({
       name: 'Premium Skincare Launch Campaign',
       industry: 'cosmetics',
@@ -73,12 +101,13 @@ export default function App() {
       ],
       timeline: '4 weeks',
     });
-    await delay(1200);
+    scrollToSection('section-brief');
+    await wait(1400);
 
     // Step 2: Set audience
     setDemoStep(2);
     pushLog('tool-call', 'set_target_audience', '25-40, Casablanca, Morocco');
-    await delay(700);
+    await wait(700);
     setAudience({
       ageRange: '25-40',
       gender: 'female',
@@ -87,12 +116,13 @@ export default function App() {
       language: 'french',
       estimatedReach: 387500,
     });
-    await delay(1000);
+    scrollToSection('section-audience');
+    await wait(1200);
 
     // Step 3: Generate Instagram ad
     setDemoStep(3);
     pushLog('tool-call', 'generate_ad_copy', 'instagram — Argan Glow Serum');
-    await delay(800);
+    await wait(800);
     addAdCopy({
       platform: 'instagram',
       tone: 'luxury',
@@ -101,12 +131,13 @@ export default function App() {
       cta: 'Shop Now',
       productName: 'Argan Glow Serum',
     });
-    await delay(800);
+    scrollToSection('section-adcopy');
+    await wait(1000);
 
     // Step 4: Generate Facebook ad
     setDemoStep(4);
     pushLog('tool-call', 'generate_ad_copy', 'facebook — Argan Glow Serum');
-    await delay(600);
+    await wait(600);
     addAdCopy({
       platform: 'facebook',
       tone: 'professional',
@@ -115,12 +146,12 @@ export default function App() {
       cta: 'Learn More',
       productName: 'Argan Glow Serum',
     });
-    await delay(1000);
+    await wait(1200);
 
     // Step 5: Allocate budget
     setDemoStep(5);
     pushLog('tool-call', 'allocate_budget', '5,000 MAD');
-    await delay(800);
+    await wait(800);
     setBudget({
       total: 5000,
       currency: 'MAD',
@@ -132,12 +163,13 @@ export default function App() {
       ],
       goal: 'engagement',
     });
-    await delay(1000);
+    scrollToSection('section-budget');
+    await wait(1200);
 
     // Step 6: Schedule
     setDemoStep(6);
     pushLog('tool-call', 'schedule_campaign', '2026-09-15 → 2026-10-13');
-    await delay(600);
+    await wait(600);
     setSchedule({
       startDate: '2026-09-15',
       endDate: '2026-10-13',
@@ -152,12 +184,13 @@ export default function App() {
         { name: 'Campaign Wrap-up', duration: '2 days', status: 'upcoming' },
       ],
     });
-    await delay(1200);
+    scrollToSection('section-schedule');
+    await wait(1400);
 
     // Step 7: Analyze performance
     setDemoStep(7);
     pushLog('tool-call', 'analyze_performance', 'Campaign: demo-1');
-    await delay(900);
+    await wait(900);
     setPerformance({
       campaignId: 'demo-1',
       campaignName: 'Summer Collection Launch',
@@ -185,6 +218,7 @@ export default function App() {
       comparedTo: 'industry_average',
       industryBenchmark: { avgEngagement: 2.1, avgROI: 1.6, avgCPC: 0.42 },
     });
+    scrollToSection('section-performance');
 
     pushLog('result', 'Demo complete', 'All 7 WebMCP tools executed successfully. The dashboard is now fully populated.');
     setDemoRunning(false);
@@ -194,14 +228,44 @@ export default function App() {
     resetCampaign();
     setToasts([]);
     setDemoStep(0);
+    scrollToSection('section-demo');
   }, []);
 
+  const handleNewCampaign = useCallback(() => {
+    handleReset();
+    setTimeout(() => runDemo(), 300);
+  }, [handleReset, runDemo]);
+
+  /* ================================================================
+   *  RENDER
+   * ================================================================ */
+
+  // Landing page with smooth exit
   if (showLanding) {
-    return <HeroSection onLaunch={() => setShowLanding(false)} />;
+    return (
+      <AnimatePresence mode="wait">
+        <motion.div
+          key="landing"
+          initial={{ opacity: 1 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={{ duration: 0.4 }}
+        >
+          <HeroSection onLaunch={() => setShowLanding(false)} />
+        </motion.div>
+      </AnimatePresence>
+    );
   }
 
   return (
-    <div className="app-layout">
+    <motion.div
+      className="app-layout"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5, delay: 0.1 }}
+    >
+      {/* Command Palette (Search) */}
+      <CommandPalette isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
       {/* Toast Notification Container */}
       <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 9999, display: 'flex', flexDirection: 'column' }}>
         <AnimatePresence>
@@ -211,11 +275,20 @@ export default function App() {
         </AnimatePresence>
       </div>
 
-      <Sidebar active={activeSection} onNavigate={setActiveSection} />
-      
+      <Sidebar
+        active={activeSection}
+        onNavigate={setActiveSection}
+        store={store}
+      />
+
       <div className="main-area">
-        <Navbar campaignName={store.brief?.name} />
-        
+        <Navbar
+          campaignName={store.brief?.name}
+          onNewCampaign={handleNewCampaign}
+          onSearch={() => setSearchOpen(true)}
+          notifications={store.agentLog.length}
+        />
+
         {demoRunning && (
           <div style={{ position: 'sticky', top: 'var(--navbar-height)', zIndex: 20 }}>
             <ProgressBar currentStep={demoStep} totalSteps={7} />
@@ -225,7 +298,7 @@ export default function App() {
         <main className="main-content">
 
           {/* Demo controls */}
-          <div className="demo-controls card">
+          <div className="demo-controls card" id="section-demo">
             <div>
               <h1 style={{ fontSize: 'var(--fs-lg)', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 2 }}>
                 <span className="text-gradient">AgentCampaign</span>
@@ -234,8 +307,8 @@ export default function App() {
                 </span>
               </h1>
               <p style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-secondary)', maxWidth: 600 }}>
-                Open this page in ChatGPT's browser or Chrome with WebMCP enabled — the AI agent can use 7 registered tools to build your campaign.
-                Or click <strong>Run Demo</strong> to see it in action.
+                Open this page in ChatGPT's browser or Chrome with WebMCP enabled — the AI agent can use 7
+                registered tools to build your campaign. Or click <strong>Run Demo</strong> to see it in action.
               </p>
             </div>
             <div style={{ display: 'flex', gap: 'var(--sp-3)', flexShrink: 0 }}>
@@ -257,42 +330,51 @@ export default function App() {
           </div>
 
           {/* KPI overview row */}
-          <KPIRow store={store} />
+          <div id="section-kpi">
+            <KPIRow store={store} />
+          </div>
 
           {/* Main grid */}
           <div className="dashboard-grid">
             {/* Left column — Brief + Audience */}
             <div className="col-5">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
-                <CampaignBrief brief={store.brief} />
-                <AudiencePanel audience={store.audience} />
+                <div id="section-brief">
+                  <CampaignBrief brief={store.brief} />
+                </div>
+                <div id="section-audience">
+                  <AudiencePanel audience={store.audience} />
+                </div>
               </div>
             </div>
 
             {/* Right column — Ad Copy + Budget */}
             <div className="col-7">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-5)' }}>
-                <AdCopyPreview copies={store.adCopies} />
-                <BudgetChart budget={store.budget} />
+                <div id="section-adcopy">
+                  <AdCopyPreview copies={store.adCopies} />
+                </div>
+                <div id="section-budget">
+                  <BudgetChart budget={store.budget} />
+                </div>
               </div>
             </div>
 
             {/* Full width — Schedule */}
-            <div className="col-12">
+            <div className="col-12" id="section-schedule">
               <ScheduleTimeline schedule={store.schedule} />
             </div>
 
             {/* Performance + Agent Log */}
-            <div className="col-7">
+            <div className="col-7" id="section-performance">
               <PerformanceMetrics performance={store.performance} campaigns={store.campaigns} />
             </div>
-            <div className="col-5">
+            <div className="col-5" id="section-agentlog">
               <AgentActivityLog logs={store.agentLog} />
             </div>
           </div>
         </main>
       </div>
-    </div>
+    </motion.div>
   );
 }
-
