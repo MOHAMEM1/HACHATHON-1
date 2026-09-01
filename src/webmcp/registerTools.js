@@ -443,3 +443,63 @@ export function registerWebMCPTools() {
 
   console.log('[AgentCampaign] ✓ 7 WebMCP tools registered successfully');
 }
+
+/* ─── Fallback Demo for UI testing without an agent ─── */
+export async function runFallbackDemoSequence() {
+  if (typeof document === 'undefined' || !document.modelContext) {
+    // We mock the context for the demo
+    document.modelContext = {
+      tools: {},
+      registerTool(t) { this.tools[t.name] = t.execute; }
+    };
+    registerWebMCPTools();
+  }
+  
+  const ctx = document.modelContext;
+  if (!ctx || !ctx.tools) return;
+
+  await ctx.tools['generate_campaign_brief']({
+    description: "Launch a luxury skincare line targeting women 25-40 in Morocco",
+    industry: "cosmetics"
+  });
+
+  await ctx.tools['set_target_audience']({
+    age_range: "25-40",
+    gender: "female",
+    location: "Casablanca, Morocco",
+    interests: ["skincare", "luxury", "beauty", "wellness"]
+  });
+
+  await ctx.tools['generate_ad_copy']({
+    platform: "instagram",
+    tone: "luxury",
+    product_name: "Lumière Royale",
+    key_benefits: ["Natural ingredients", "Anti-aging formula"]
+  });
+
+  await ctx.tools['generate_ad_copy']({
+    platform: "tiktok",
+    tone: "playful",
+    product_name: "Lumière Royale",
+    key_benefits: ["Glow up instantly", "Viral sensation"]
+  });
+
+  await ctx.tools['allocate_budget']({
+    total_budget: 8000,
+    currency: "MAD",
+    platforms: ["instagram", "tiktok", "facebook"],
+    optimization_goal: "conversions"
+  });
+
+  await ctx.tools['schedule_campaign']({
+    start_date: new Date(Date.now() + 86400000*3).toISOString().split('T')[0],
+    end_date: new Date(Date.now() + 86400000*31).toISOString().split('T')[0],
+    posting_frequency: "daily",
+    peak_hours: ["18:00", "20:00"]
+  });
+
+  await ctx.tools['analyze_performance']({
+    campaign_id: "demo-1",
+    metric: "conversions"
+  });
+}
