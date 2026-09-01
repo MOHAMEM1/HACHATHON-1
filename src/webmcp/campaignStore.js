@@ -28,43 +28,14 @@ let state = {
   schedule: null,
   /* shape: { startDate, endDate, frequency, peakHours[], phases[] } */
 
-  /* ---- Performance (demo data) ---- */
+  /* ---- Performance ---- */
   performance: null,
 
   /* ---- Agent activity feed ---- */
   agentLog: [],
 
-  /* ---- Campaigns list ---- */
-  campaigns: [
-    {
-      id: 'demo-1',
-      name: 'Summer Collection Launch',
-      status: 'active',
-      platform: 'instagram',
-      budget: 5000,
-      currency: 'MAD',
-      reach: 45200,
-      engagement: 3.8,
-      conversions: 127,
-      roi: 2.4,
-      startDate: '2026-08-15',
-      endDate: '2026-09-15',
-    },
-    {
-      id: 'demo-2',
-      name: 'Back to School Promo',
-      status: 'draft',
-      platform: 'facebook',
-      budget: 3000,
-      currency: 'MAD',
-      reach: 0,
-      engagement: 0,
-      conversions: 0,
-      roi: 0,
-      startDate: '2026-09-01',
-      endDate: '2026-09-30',
-    },
-  ],
+  /* ---- Campaigns list (empty — agent fills this) ---- */
+  campaigns: [],
 };
 
 /* ---- Subscriber mechanism ---- */
@@ -118,7 +89,7 @@ export function setSchedule(schedule) {
 
 export function setPerformance(perf) {
   state = { ...state, performance: perf };
-  pushLog('result', 'Performance analysis complete', `ROI: ${perf.roi}x — ${perf.recommendations?.[0] ?? ''}`);
+  pushLog('result', 'Performance analysis complete', `ROI: ${perf.metrics?.roi ?? '—'}x — ${perf.recommendations?.[0] ?? ''}`);
   emitChange();
 }
 
